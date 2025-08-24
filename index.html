@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ALAM IOT </title>
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <style>
+    body { font-family: 'Segoe UI', sans-serif; margin:0; background:#f0f2f5; }
+    header { background:#4CAF50; color:white; padding:20px; text-align:center; display:flex; align-items:center; justify-content:center; gap:15px; }
+    header img { 
+      height:80px;   /* default lebih besar dari 50px */
+      width:auto; 
+      border-radius:0%; 
+      transition: all 0.3s ease; 
+    }
+    header img:hover {
+      transform: scale(1.1); /* efek zoom saat hover */
+    }
+    h1 { margin:0; font-size:24px; }
+    p { margin:0; font-size:14px; }
+    .grid { display:grid; gap:20px; padding:20px; }
+    .grid-2 { grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
+    .card {
+      background:white; border-radius:12px; padding:20px;
+      box-shadow:0 4px 10px rgba(0,0,0,0.1); transition:transform .2s;
+    }
+    .card:hover { transform:translateY(-3px); }
+    .sensor { font-size:14px; color:#666; }
+    .value { font-size:24px; font-weight:bold; color:#4CAF50; margin:5px 0; }
+    .pump-controls button {
+      padding:10px 15px; margin:5px; border:none; border-radius:6px; cursor:pointer; color:white; font-weight:bold;
+    }
+    .manual { background:green; }
+    .auto { background:blue; }
+    .timer { background:orange; }
+    footer { background:#ddd; padding:10px; text-align:center; margin-top:20px; }
+    .active { opacity:1; }
+    .inactive { opacity:0.6; }
+  </style>
+</head>
+<body>
+  <header>
+    <!-- Logo bisa diperbesar -->
+    <img src="Logo.png" alt="Logo">
+    <div>
+      <h1>🌱 ALAM (Automated Live Agriculture Monitor)</h1>
+      <p>MAN 1 MEDAN TEAM</p>
+    </div>
+  </header>
+
+  <!-- Data Lingkungan -->
+  <div class="grid grid-2">
+    <div class="card">
+      <h2>Data Lingkungan</h2>
+      <div class="sensor">Suhu Udara: <div class="value" id="airTemp">-- °C</div></div>
+      <div class="sensor">Kelembapan Udara: <div class="value" id="airHum">-- %</div></div>
+      <div class="sensor">pH Tanah: <div class="value" id="ph">--</div></div>
+      <div class="sensor">Cahaya: <div class="value" id="lux">-- lux</div></div>
+      <div class="sensor">CO₂: <div class="value" id="co2">-- ppm</div></div>
+    </div>
+
+    <div class="card">
+      <h2>Kontrol Pompa</h2>
+      <div>Status Pompa: <div class="value" id="pumpStatus">--</div></div>
+      <div>Mode: <div class="value" id="pumpMode">--</div></div>
+      <div class="pump-controls">
+        <button id="manualBtn" class="manual inactive" onclick="toggleManual()">Manual ON/OFF</button>
+        <button class="auto" onclick="setPump('AUTO')">AUTO</button>
+      </div>
+      <hr>
+      <h3>⏰ Pengaturan Timer</h3>
+      <label>Waktu Mulai:</label><br>
+      <input type="datetime-local" id="startTime"><br><br>
+      <label>Durasi (menit):</label><br>
+      <input type="number" id="duration" min="1" value="10"><br><br>
+      <button id="timerBtn" class="timer inactive" onclick="toggleTimer()">Timer ON/OFF</button>
+    </div>
+  </div>
+
+  <!-- Data per Tanaman -->
+  <div class="grid grid-2">
+    <div class="card" id="plant1">
+      <h2>Tanaman 1</h2>
+      <div class="sensor">Kelembapan Tanah: <div class="value moisture">-- %</div></div>
+      <div class="sensor">Suhu Tanah: <div class="value temp">-- °C</div></div>
+    </div>
+    <div class="card" id="plant2">
+      <h2>Tanaman 2</h2>
+      <div class="sensor">Kelembapan Tanah: <div class="value moisture">-- %</div></div>
+      <div class="sensor">Suhu Tanah: <div class="value temp">-- °C</div></div>
+    </div>
+    <div class="card" id="plant3">
+      <h2>Tanaman 3</h2>
+      <div class="sensor">Kelembapan Tanah: <div class="value moisture">-- %</div></div>
+      <div class="sensor">Suhu Tanah: <div class="value temp">-- °C</div></div>
+    </div>
+    <div class="card" id="plant4">
+      <h2>Tanaman 4</h2>
+      <div class="sensor">Kelembapan Tanah: <div class="value moisture">-- %</div></div>
+      <div class="sensor">Suhu Tanah: <div class="value temp">-- °C</div></div>
+    </div>
+  </div>
+
+  <footer>
+    Fiz Project © 2025 - Monitoring IoT Tanaman
+  </footer>
+
+  <script>
+    const broker = 'wss://broker.hivemq.com:8000/mqtt';
+    const clientId = 'webclient_' + Math.floor(Math.random()*1000);
+    const plantNode = 'plantnode01';
+
+    const client = mqtt.connect(broker, { clientId: clientId });
+
+    let manualState = false;
+    let timerActive = false;
+
+    client.on('connect', function() {
+      console.log('Connected to MQTT broker');
+      client.subscribe(`fizproject/plantmonitor/${plantNode}/telemetry`);
+      client.subscribe(`fizproject/plantmonitor/${plantNode}/pump/status`);
+      client.subscribe(`fizproject/plantmonitor/${plantNode}/mode`);
+    });
+
+    client.on('message', function(topic, message) {
+      const msg = message.toString();
+      if(topic.endsWith('telemetry')) {
+        const data = JSON.parse(msg);
+        document.getElementById('airTemp').innerText = data.airTemp + " °C";
+        document.getElementById('airHum').innerText = data.airHum + " %";
+        document.getElementById('ph').innerText = data.ph;
+        document.getElementById('lux').innerText = data.lux + " lux";
+        document.getElementById('co2').innerText = data.co2_eCO2 + " ppm";
+
+        document.getElementById('pumpStatus').innerText = data.pumpState ? 'ON' : 'OFF';
+        document.getElementById('pumpMode').innerText = data.mode;
+
+        for (let i=0;i<4;i++) {
+          let plantDiv = document.getElementById('plant'+(i+1));
+          plantDiv.querySelector('.moisture').innerText = data.moisture[i] + " %";
+          plantDiv.querySelector('.temp').innerText = data.soilTemps[i] + " °C";
+        }
+      } else if(topic.endsWith('pump/status')) {
+        const status = JSON.parse(msg);
+        document.getElementById('pumpStatus').innerText = status.pumpState ? 'ON' : 'OFF';
+        document.getElementById('pumpMode').innerText = status.mode;
+      } else if(topic.endsWith('mode')) {
+        document.getElementById('pumpMode').innerText = msg;
+      }
+    });
+
+    function toggleManual() {
+      manualState = !manualState;
+      document.getElementById("manualBtn").className = manualState ? "manual active" : "manual inactive";
+      client.publish(`fizproject/plantmonitor/${plantNode}/pump/set`, manualState ? "ON" : "OFF");
+      showNotification("Pompa " + (manualState ? "dinyalakan" : "dimatikan"));
+    }
+
+    function setPump(command) {
+      client.publish(`fizproject/plantmonitor/${plantNode}/pump/set`, command);
+      showNotification("Mode pompa diubah ke " + command);
+    }
+
+    function toggleTimer() {
+      timerActive = !timerActive;
+      document.getElementById("timerBtn").className = timerActive ? "timer active" : "timer inactive";
+
+      if(timerActive) {
+        const start = new Date(document.getElementById("startTime").value).getTime();
+        const duration = parseInt(document.getElementById("duration").value) * 60 * 1000;
+        if(isNaN(start) || isNaN(duration)) {
+          alert("Isi waktu mulai dan durasi dengan benar!");
+          return;
+        }
+        client.publish(`fizproject/plantmonitor/${plantNode}/pump/timer`, JSON.stringify({start:start, duration:duration}));
+        showNotification("Timer pompa dijadwalkan");
+      } else {
+        client.publish(`fizproject/plantmonitor/${plantNode}/pump/timer`, "CANCEL");
+        showNotification("Timer pompa dibatalkan");
+      }
+    }
+
+    function showNotification(message) {
+      if (Notification.permission === "granted") {
+        new Notification("🌱 IoT Tanaman", { body: message });
+      }
+    }
+    if (Notification.permission !== "granted") {
+      Notification.requestPermission();
+    }
+  </script>
+</body>
+</html>
